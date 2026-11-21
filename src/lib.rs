@@ -1,5 +1,4 @@
-#![cfg_attr(feature = "unstable", feature(external_doc))]
-#![cfg_attr(feature = "unstable", doc(include = "../README.md"))]
+#![doc = include_str!("../README.md")]
 
 use std::path::{Path, PathBuf};
 use std::result;

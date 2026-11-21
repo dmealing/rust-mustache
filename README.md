@@ -34,7 +34,7 @@ with `{{flag}}` renders as `true` or `false` (it used to render nothing).
 
 ## Install
 
-Install it through Cargo!
+Install it through Cargo! The minimum supported Rust version is 1.61.
 
 ```toml
 [dependencies]
