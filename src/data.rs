@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt;
 
 // for bug!
-use log::{log, error};
+use log::error;
 
 pub enum Data {
     Null,
@@ -19,14 +19,14 @@ impl PartialEq for Data {
     fn eq(&self, other: &Data) -> bool {
         match (self, other) {
             (&Data::Null, &Data::Null) => true,
-            (&Data::String(ref v0), &Data::String(ref v1)) => v0 == v1,
-            (&Data::Bool(ref v0), &Data::Bool(ref v1)) => v0 == v1,
-            (&Data::Vec(ref v0), &Data::Vec(ref v1)) => v0 == v1,
-            (&Data::Map(ref v0), &Data::Map(ref v1)) => v0 == v1,
+            (Data::String(v0), Data::String(v1)) => v0 == v1,
+            (Data::Bool(v0), Data::Bool(v1)) => v0 == v1,
+            (Data::Vec(v0), Data::Vec(v1)) => v0 == v1,
+            (Data::Map(v0), Data::Map(v1)) => v0 == v1,
             (&Data::Fun(_), &Data::Fun(_)) => {
                 bug!("Cannot compare closures");
                 false
-            },
+            }
             (_, _) => false,
         }
     }

@@ -1,16 +1,15 @@
 use std::cell::RefCell;
-use tempdir::TempDir;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::Write;
-use std::path::{PathBuf, Path};
-use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use tempfile::TempDir;
 
-use mustache::{self, Data, Error, to_data};
+use mustache::{self, to_data, Data, Error};
 use mustache::{Context, Template};
 
 use serde::Serialize;
-use serde_json;
 use serde_json::Value as Json;
 
 #[derive(Debug, Serialize)]
@@ -33,21 +32,26 @@ struct Person {
 }
 
 fn compile_str(s: &str) -> Template {
-    mustache::compile_str(s).expect(&format!("Failed to compile: {}", s))
+    mustache::compile_str(s).unwrap_or_else(|_| panic!("Failed to compile: {}", s))
 }
 
 fn assert_render<T>(template: &str, data: &T) -> String
-where T: Serialize + Debug
+where
+    T: Serialize + Debug,
 {
     if let Ok(s) = render(template, data) {
         s
     } else {
-        panic!("Failed to render: template: {:?}\ndata: {:?}", template, data);
+        panic!(
+            "Failed to render: template: {:?}\ndata: {:?}",
+            template, data
+        );
     }
 }
 
 fn render<T>(template: &str, data: &T) -> Result<String, Error>
-where T: Serialize
+where
+    T: Serialize,
 {
     let template = compile_str(template);
 
@@ -199,16 +203,18 @@ fn test_render_option_sections_implicit_ampersand_alternative_delimeters() {
 }
 
 mod context_search {
-    use super::{render_data, compile_str};
+    use super::{compile_str, render_data};
     use mustache::MapBuilder;
 
     fn assert_render(template: &str, expected: &str) {
-        let ctx = MapBuilder::new().insert_map("payload", |map| {
-            map.insert_vec("list", |vec| {
-                vec.push_str("<p>hello</p>")
-                   .push_str("<p>world</p>")
-            }).insert_str("test", "hello world")
-        }).build();
+        let ctx = MapBuilder::new()
+            .insert_map("payload", |map| {
+                map.insert_vec("list", |vec| {
+                    vec.push_str("<p>hello</p>").push_str("<p>world</p>")
+                })
+                .insert_str("test", "hello world")
+            })
+            .build();
 
         let template = compile_str(template);
         let rendered = render_data(&template, &ctx);
@@ -263,7 +269,9 @@ fn test_render_option_nested() {
     let ctx = Nested { opt: Some(None) };
     assert_eq!(assert_render(template, &ctx), "-+");
 
-    let ctx = Nested { opt: Some(Some(42)) };
+    let ctx = Nested {
+        opt: Some(Some(42)),
+    };
     assert_eq!(assert_render(template, &ctx), "-42+");
 }
 
@@ -276,7 +284,10 @@ fn test_render_option_complex() {
         name: "Jupiter".to_string(),
         info: None,
     };
-    assert_eq!(assert_render(template, &ctx), "Jupiter - No additional info");
+    assert_eq!(
+        assert_render(template, &ctx),
+        "Jupiter - No additional info"
+    );
 
     let address = PlanetInfo {
         moons: vec!["Luna".to_string()],
@@ -287,14 +298,19 @@ fn test_render_option_complex() {
         name: "Earth".to_string(),
         info: Some(address),
     };
-    assert_eq!(assert_render(template, &ctx), "Earth - Birthplace of rust-lang; \
+    assert_eq!(
+        assert_render(template, &ctx),
+        "Earth - Birthplace of rust-lang; \
                                                It's moons are [Luna] and has a \
-                                               population of 7300000000");
+                                               population of 7300000000"
+    );
 }
 
 fn render_data(template: &Template, data: &Data) -> String {
     let mut bytes = vec![];
-    template.render_data(&mut bytes, data).expect("Failed to render data");
+    template
+        .render_data(&mut bytes, data)
+        .expect("Failed to render data");
     String::from_utf8(bytes).expect("Failed ot encode as String")
 }
 
@@ -307,7 +323,9 @@ fn test_write_failure() {
     let mut buffer = [0u8; 6];
     {
         let mut writer: &mut [u8] = &mut buffer;
-        template.render(&mut writer, &ctx).expect("Failed to render");
+        template
+            .render(&mut writer, &ctx)
+            .expect("Failed to render");
     }
 
     assert_eq!(&buffer, b"foobar");
@@ -337,7 +355,9 @@ fn test_render_data_to_string() {
     let ctx = HashMap::new();
     let template = compile_str("0{{#a}}1 {{n}} 3{{/a}}5");
 
-    let result = template.render_data_to_string(&Data::Map(ctx)).expect("Failed to render");
+    let result = template
+        .render_data_to_string(&Data::Map(ctx))
+        .expect("Failed to render");
 
     assert_eq!(&result, "05");
 
@@ -346,7 +366,9 @@ fn test_render_data_to_string() {
     ctx1.insert("n".to_string(), Data::String("a".to_string()));
     ctx0.insert("a".to_string(), Data::Vec(vec![Data::Map(ctx1)]));
 
-    let result = template.render_data_to_string(&Data::Map(ctx0)).expect("Failed to render");
+    let result = template
+        .render_data_to_string(&Data::Map(ctx0))
+        .expect("Failed to render");
 
     assert_eq!(&result, "01 a 35");
 }
@@ -371,17 +393,25 @@ fn test_render_sections() {
     let ctx1 = HashMap::new();
     ctx0.insert("a".to_string(), Data::Vec(vec![Data::Map(ctx1)]));
 
-    assert_eq!(render_data(&template, &Data::Map(ctx0)), "01  35".to_string());
+    assert_eq!(
+        render_data(&template, &Data::Map(ctx0)),
+        "01  35".to_string()
+    );
 
     let mut ctx0 = HashMap::new();
     let mut ctx1 = HashMap::new();
     ctx1.insert("n".to_string(), Data::String("a".to_string()));
     ctx0.insert("a".to_string(), Data::Vec(vec![Data::Map(ctx1)]));
-    assert_eq!(render_data(&template, &Data::Map(ctx0)), "01 a 35".to_string());
+    assert_eq!(
+        render_data(&template, &Data::Map(ctx0)),
+        "01 a 35".to_string()
+    );
 
     let mut ctx = HashMap::new();
-    ctx.insert("a".to_string(),
-               Data::Fun(RefCell::new(Box::new(|_text| "foo".to_string()))));
+    ctx.insert(
+        "a".to_string(),
+        Data::Fun(RefCell::new(Box::new(|_text| "foo".to_string()))),
+    );
     assert_eq!(render_data(&template, &Data::Map(ctx)), "0foo5".to_string());
 }
 
@@ -410,41 +440,54 @@ fn test_render_inverted_sections() {
 
 fn assert_partials_data(template: Template) {
     let ctx = HashMap::new();
-    assert_eq!(render_data(&template, &Data::Map(ctx)),
-               "<h2>Names</h2>\n".to_string());
+    assert_eq!(
+        render_data(&template, &Data::Map(ctx)),
+        "<h2>Names</h2>\n".to_string()
+    );
 
     let mut ctx = HashMap::new();
     ctx.insert("names".to_string(), Data::Vec(vec![]));
-    assert_eq!(render_data(&template, &Data::Map(ctx)),
-               "<h2>Names</h2>\n".to_string());
+    assert_eq!(
+        render_data(&template, &Data::Map(ctx)),
+        "<h2>Names</h2>\n".to_string()
+    );
 
     let mut ctx0 = HashMap::new();
     let ctx1 = HashMap::new();
     ctx0.insert("names".to_string(), Data::Vec(vec![Data::Map(ctx1)]));
-    assert_eq!(render_data(&template, &Data::Map(ctx0)),
-               "<h2>Names</h2>\n  <strong></strong>\n\n".to_string());
+    assert_eq!(
+        render_data(&template, &Data::Map(ctx0)),
+        "<h2>Names</h2>\n  <strong></strong>\n".to_string()
+    );
 
     let mut ctx0 = HashMap::new();
     let mut ctx1 = HashMap::new();
     ctx1.insert("name".to_string(), Data::String("a".to_string()));
     ctx0.insert("names".to_string(), Data::Vec(vec![Data::Map(ctx1)]));
-    assert_eq!(render_data(&template, &Data::Map(ctx0)),
-               "<h2>Names</h2>\n  <strong>a</strong>\n\n".to_string());
+    assert_eq!(
+        render_data(&template, &Data::Map(ctx0)),
+        "<h2>Names</h2>\n  <strong>a</strong>\n".to_string()
+    );
 
     let mut ctx0 = HashMap::new();
     let mut ctx1 = HashMap::new();
     ctx1.insert("name".to_string(), Data::String("a".to_string()));
     let mut ctx2 = HashMap::new();
     ctx2.insert("name".to_string(), Data::String("<b>".to_string()));
-    ctx0.insert("names".to_string(), Data::Vec(vec![Data::Map(ctx1), Data::Map(ctx2)]));
-    assert_eq!(render_data(&template, &Data::Map(ctx0)),
-               "<h2>Names</h2>\n  <strong>a</strong>\n\n  <strong>&lt;b&gt;</strong>\n\n"
-                   .to_string());
+    ctx0.insert(
+        "names".to_string(),
+        Data::Vec(vec![Data::Map(ctx1), Data::Map(ctx2)]),
+    );
+    assert_eq!(
+        render_data(&template, &Data::Map(ctx0)),
+        "<h2>Names</h2>\n  <strong>a</strong>\n  <strong>&lt;b&gt;</strong>\n".to_string()
+    );
 }
 
 #[test]
 fn test_render_partial_dot_filename() {
-    let template = mustache::compile_path("tests/test-data/base.foo.mustache").expect("Failed to compile");
+    let template =
+        mustache::compile_path("tests/test-data/base.foo.mustache").expect("Failed to compile");
     assert_partials_data(template);
 }
 
@@ -456,10 +499,10 @@ fn test_render_partial() {
 
 fn parse_spec_tests(src: &str) -> Vec<Json> {
     let path = PathBuf::from(src);
-    let file = File::open(&path)
-        .expect(&format!("Could not read file {}", path.display()));
+    let file =
+        File::open(&path).unwrap_or_else(|_| panic!("Could not read file {}", path.display()));
     let json = serde_json::from_reader(file)
-        .expect(&format!("Invalid json in file {}", path.display()));
+        .unwrap_or_else(|_| panic!("Invalid json in file {}", path.display()));
 
     assert_let!(Json::Object(mut d) = json => {
         assert_let!(Some(Json::Array(tests)) = d.remove("tests") => {
@@ -482,25 +525,26 @@ fn write_partials(tmpdir: &Path, value: &Json) {
 }
 
 fn run_test(test: serde_json::Map<String, Json>, data: Data) {
-    let template = assert_let!(Some(&Json::String(ref s)) = test.get("template") => {
+    let template = assert_let!(Some(Json::String(s)) = test.get("template") => {
         s.clone()
     });
 
-    let expected = assert_let!(Some(&Json::String(ref s)) = test.get("expected") => {
+    let expected = assert_let!(Some(Json::String(s)) = test.get("expected") => {
         s.clone()
     });
 
     // Make a temporary dir where we'll store our partials. This is to
     // avoid a race on filenames.
-    let tmpdir = TempDir::new("").expect("Failed to make tempdir");
+    let tmpdir = TempDir::new().expect("Failed to make tempdir");
 
     if let Some(value) = test.get("partials") {
         write_partials(tmpdir.path(), value)
     }
 
     let ctx = Context::new(tmpdir.path().to_path_buf());
-    let template = ctx.compile(template.chars())
-                      .expect(&format!("Failed to compile: {}", template));
+    let template = ctx
+        .compile(template.chars())
+        .unwrap_or_else(|_| panic!("Failed to compile: {}", template));
     let result = render_data(&template, &data);
 
     if result != expected {
@@ -510,7 +554,7 @@ fn run_test(test: serde_json::Map<String, Json>, data: Data) {
         println!("template: {:?}", template);
         println!("expected: {}", expected);
         println!("actual:   {}", result);
-        println!("");
+        println!();
     }
     assert_eq!(result, expected);
 }
@@ -627,5 +671,148 @@ fn test_spec_lambdas() {
         };
 
         run_test(test, Data::Map(ctx));
+    }
+}
+
+#[test]
+#[ignore = "optional spec module (~inheritance) is not supported"]
+fn test_spec_inheritance() {
+    run_tests("spec/specs/~inheritance.json");
+}
+
+#[test]
+#[ignore = "optional spec module (~dynamic-names) is not supported"]
+fn test_spec_dynamic_names() {
+    run_tests("spec/specs/~dynamic-names.json");
+}
+
+#[test]
+fn test_render_bool_values() {
+    let data = mustache::MapBuilder::new()
+        .insert_bool("t", true)
+        .insert_bool("f", false)
+        .build();
+    let template = compile_str("{{t}} {{f}} {{{t}}} {{&f}}");
+    assert_eq!(render_data(&template, &data), "true false true false");
+}
+
+// Standalone tags are decided against the original template text, so a tag
+// that follows another standalone tag is still standalone.
+mod standalone {
+    use mustache::{self, MapBuilder};
+
+    fn render(template: &str) -> String {
+        let data = MapBuilder::new()
+            .insert_bool("yes", true)
+            .insert_bool("no", false)
+            .insert_str("v", "val")
+            .build();
+        mustache::compile_str(template)
+            .expect("Failed to compile")
+            .render_data_to_string(&data)
+            .expect("Failed to render")
+    }
+
+    #[test]
+    fn consecutive_comments() {
+        assert_eq!(
+            render("a\n{{! one }}\n{{! two }}\n{{! three }}\nb\n"),
+            "a\nb\n"
+        );
+    }
+
+    #[test]
+    fn consecutive_section_tags() {
+        assert_eq!(
+            render("a\n{{#yes}}\n{{/yes}}\n{{^no}}\n{{/no}}\nb\n"),
+            "a\nb\n"
+        );
+        assert_eq!(
+            render("a\n{{#yes}}\n{{#yes}}\nx\n{{/yes}}\n{{/yes}}\nb\n"),
+            "a\nx\nb\n"
+        );
+        assert_eq!(
+            render("a\n{{^no}}\n{{^no}}\nx\n{{/no}}\n{{/no}}\nb\n"),
+            "a\nx\nb\n"
+        );
+    }
+
+    #[test]
+    fn close_followed_by_standalone_tag() {
+        assert_eq!(render("{{#yes}}\nx\n{{/yes}}\n{{! c }}\nb\n"), "x\nb\n");
+        assert_eq!(
+            render("{{#yes}}\nx\n{{/yes}}\n{{#yes}}\ny\n{{/yes}}\nb\n"),
+            "x\ny\nb\n"
+        );
+    }
+
+    #[test]
+    fn standalone_followed_by_text() {
+        assert_eq!(render("{{#no}}\nx\n{{/no}}\n{{! c }}\nb\n"), "b\n");
+    }
+
+    #[test]
+    fn standalone_tag_at_end_of_file() {
+        assert_eq!(render("a\n{{! c }}"), "a\n");
+        assert_eq!(render("a\n{{! c }}\n{{! d }}"), "a\n");
+        assert_eq!(render("a\n{{#yes}}\nb\n{{/yes}}"), "a\nb\n");
+        assert_eq!(render("a\n  {{! c }}  "), "a\n");
+        assert_eq!(render("{{! c }}"), "");
+    }
+
+    #[test]
+    fn indented_standalone_tags() {
+        assert_eq!(render("a\n  {{! c }}\n  {{! d }}\nb\n"), "a\nb\n");
+        assert_eq!(
+            render("a\n\t{{#yes}}\n\t  x\n\t{{/yes}}\nb\n"),
+            "a\n\t  x\nb\n"
+        );
+        assert_eq!(
+            render("a\n  {{#yes}}\n  {{/yes}}\n  {{^no}}\n  {{/no}}\nb\n"),
+            "a\nb\n"
+        );
+    }
+
+    #[test]
+    fn standalone_tag_with_trailing_blanks() {
+        assert_eq!(render("a\n{{! c }}  \n{{! d }}\t\nb\n"), "a\nb\n");
+    }
+
+    #[test]
+    fn standalone_tags_with_crlf() {
+        assert_eq!(render("a\r\n{{! c }}\r\n{{! d }}\r\nb\r\n"), "a\r\nb\r\n");
+        assert_eq!(
+            render("a\r\n{{#yes}}\r\n{{/yes}}\r\n{{^no}}\r\n{{/no}}\r\nb\r\n"),
+            "a\r\nb\r\n"
+        );
+    }
+
+    #[test]
+    fn standalone_delimiter_changes() {
+        assert_eq!(
+            render("a\n{{=<% %>=}}\n<%! c %>\n<%={{ }}=%>\nb\n"),
+            "a\nb\n"
+        );
+    }
+
+    #[test]
+    fn standalone_comments_around_sections() {
+        assert_eq!(
+            render("a\n{{! c }}\n{{#yes}}\n{{! d }}\nx\n{{! e }}\n{{/yes}}\n{{! f }}\nb\n"),
+            "a\nx\nb\n"
+        );
+    }
+
+    #[test]
+    fn tags_sharing_a_line_are_not_standalone() {
+        assert_eq!(render("a\n{{! c }}{{! d }}\nb\n"), "a\n\nb\n");
+        assert_eq!(render("a\n{{#yes}}{{/yes}}\nb\n"), "a\n\nb\n");
+        assert_eq!(render("a\n{{! c }} x\nb\n"), "a\n x\nb\n");
+        assert_eq!(render("a\n x {{! c }}\nb\n"), "a\n x \nb\n");
+    }
+
+    #[test]
+    fn interpolation_is_never_standalone() {
+        assert_eq!(render("a\n{{&v}}\nb\n"), "a\nval\nb\n");
     }
 }

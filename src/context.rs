@@ -1,12 +1,12 @@
-use template::{self, Template};
-use compiler;
-use {Result, Error};
+use crate::compiler;
+use crate::template::{self, Template};
+use crate::{Error, Result};
 
 use std::fmt;
 use std::fs::File;
-use std::str;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::str;
 
 /// Represents the shared metadata needed to compile and render a mustache
 /// template.
@@ -18,10 +18,11 @@ pub struct Context {
 
 impl fmt::Debug for Context {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-               "Context {{ template_path: {:?}, template_extension: {} }}",
-               &*self.template_path,
-               self.template_extension)
+        write!(
+            f,
+            "Context {{ template_path: {:?}, template_extension: {} }}",
+            &*self.template_path, self.template_extension
+        )
     }
 }
 
@@ -53,7 +54,7 @@ impl Context {
         file.read_to_end(&mut s)?;
 
         // TODO: maybe allow UTF-16 as well?
-        let template = match str::from_utf8(&*s) {
+        let template = match str::from_utf8(&s) {
             Ok(string) => string,
             _ => {
                 return Err(Error::InvalidStr);

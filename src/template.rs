@@ -1,15 +1,15 @@
 use std::collections::HashMap;
-use std::mem;
 use std::io::Write;
+use std::mem;
 use std::str;
 
-use compiler::Compiler;
+use crate::compiler::Compiler;
 // for bug!
-use log::{log, error};
-use parser::Token;
+use crate::parser::Token;
+use log::error;
 use serde::Serialize;
 
-use super::{Context, Data, Error, Result, to_data};
+use super::{to_data, Context, Data, Error, Result};
 
 /// `Template` represents a compiled mustache file.
 #[derive(Debug, Clone)]
@@ -23,17 +23,18 @@ pub struct Template {
 /// not exported outside of mustache.
 pub fn new(ctx: Context, tokens: Vec<Token>, partials: HashMap<String, Vec<Token>>) -> Template {
     Template {
-        ctx: ctx,
-        tokens: tokens,
-        partials: partials,
+        ctx,
+        tokens,
+        partials,
     }
 }
 
 impl Template {
     /// Renders the template with the `Encodable` data.
     pub fn render<W, T>(&self, wr: &mut W, data: &T) -> Result<()>
-    where W: Write,
-          T: Serialize,
+    where
+        W: Write,
+        T: Serialize,
     {
         let data = to_data(data)?;
         self.render_data(wr, &data)
@@ -71,13 +72,18 @@ struct RenderContext<'a> {
 impl<'a> RenderContext<'a> {
     fn new(template: &'a Template) -> RenderContext<'a> {
         RenderContext {
-            template: template,
+            template,
             indent: "".to_string(),
             line_start: true,
         }
     }
 
-    fn render<W: Write>(&mut self, wr: &mut W, stack: &mut Vec<&Data>, tokens: &[Token]) -> Result<()> {
+    fn render<W: Write>(
+        &mut self,
+        wr: &mut W,
+        stack: &mut Vec<&Data>,
+        tokens: &[Token],
+    ) -> Result<()> {
         for token in tokens.iter() {
             self.render_token(wr, stack, token)?;
         }
@@ -85,26 +91,23 @@ impl<'a> RenderContext<'a> {
         Ok(())
     }
 
-    fn render_token<W: Write>(&mut self, wr: &mut W, stack: &mut Vec<&Data>, token: &Token) -> Result<()> {
+    fn render_token<W: Write>(
+        &mut self,
+        wr: &mut W,
+        stack: &mut Vec<&Data>,
+        token: &Token,
+    ) -> Result<()> {
         match *token {
-            Token::Text(ref value) => {
-                self.render_text(wr, value)
-            }
-            Token::EscapedTag(ref path, _) => {
-                self.render_etag(wr, stack, path)
-            }
-            Token::UnescapedTag(ref path, _) => {
-                self.render_utag(wr, stack, path)
-            }
+            Token::Text(ref value) => self.render_text(wr, value),
+            Token::EscapedTag(ref path, _) => self.render_etag(wr, stack, path),
+            Token::UnescapedTag(ref path, _) => self.render_utag(wr, stack, path),
             Token::Section(ref path, true, ref children, _, _, _, _, _) => {
                 self.render_inverted_section(wr, stack, path, children)
             }
             Token::Section(ref path, false, ref children, ref otag, _, ref src, _, ref ctag) => {
                 self.render_section(wr, stack, path, children, src, otag, ctag)
             }
-            Token::Partial(ref name, ref indent, _) => {
-                self.render_partial(wr, stack, name, indent)
-            }
+            Token::Partial(ref name, ref indent, _) => self.render_partial(wr, stack, name, indent),
             Token::IncompleteSection(..) => {
                 bug!("render_token should not encounter IncompleteSections");
                 Err(Error::IncompleteSection)
@@ -165,7 +168,12 @@ impl<'a> RenderContext<'a> {
         Ok(())
     }
 
-    fn render_etag<W: Write>(&mut self, wr: &mut W, stack: &mut Vec<&Data>, path: &[String]) -> Result<()> {
+    fn render_etag<W: Write>(
+        &mut self,
+        wr: &mut W,
+        stack: &mut Vec<&Data>,
+        path: &[String],
+    ) -> Result<()> {
         let mut bytes = vec![];
 
         self.render_utag(&mut bytes, stack, path)?;
@@ -184,7 +192,12 @@ impl<'a> RenderContext<'a> {
         Ok(())
     }
 
-    fn render_utag<W: Write>(&mut self, wr: &mut W, stack: &mut Vec<&Data>, path: &[String]) -> Result<()> {
+    fn render_utag<W: Write>(
+        &mut self,
+        wr: &mut W,
+        stack: &mut Vec<&Data>,
+        path: &[String],
+    ) -> Result<()> {
         match self.find(path, stack) {
             None => {}
             Some(value) => {
@@ -210,6 +223,11 @@ impl<'a> RenderContext<'a> {
                         self.render(wr, stack, &tokens)?;
                     }
 
+                    Data::Bool(val) => {
+                        let s = if val { "true" } else { "false" };
+                        self.write_tracking_newlines(wr, s)?;
+                    }
+
                     ref value => {
                         bug!("render_utag: unexpected value {:?}", value);
                     }
@@ -220,16 +238,18 @@ impl<'a> RenderContext<'a> {
         Ok(())
     }
 
-    fn render_inverted_section<W: Write>(&mut self,
-                                         wr: &mut W,
-                                         stack: &mut Vec<&Data>,
-                                         path: &[String],
-                                         children: &[Token]) -> Result<()> {
+    fn render_inverted_section<W: Write>(
+        &mut self,
+        wr: &mut W,
+        stack: &mut Vec<&Data>,
+        path: &[String],
+        children: &[Token],
+    ) -> Result<()> {
         match self.find(path, stack) {
             None => {}
             Some(&Data::Null) => {}
             Some(&Data::Bool(false)) => {}
-            Some(&Data::Vec(ref xs)) if xs.is_empty() => {}
+            Some(Data::Vec(xs)) if xs.is_empty() => {}
             Some(_) => {
                 return Ok(());
             }
@@ -238,14 +258,17 @@ impl<'a> RenderContext<'a> {
         self.render(wr, stack, children)
     }
 
-    fn render_section<W: Write>(&mut self,
-                                wr: &mut W,
-                                stack: &mut Vec<&Data>,
-                                path: &[String],
-                                children: &[Token],
-                                src: &str,
-                                otag: &str,
-                                ctag: &str) -> Result<()> {
+    #[allow(clippy::too_many_arguments)]
+    fn render_section<W: Write>(
+        &mut self,
+        wr: &mut W,
+        stack: &mut Vec<&Data>,
+        path: &[String],
+        children: &[Token],
+        src: &str,
+        otag: &str,
+        ctag: &str,
+    ) -> Result<()> {
         match self.find(path, stack) {
             None => {}
             Some(value) => {
@@ -286,18 +309,20 @@ impl<'a> RenderContext<'a> {
         Ok(())
     }
 
-    fn render_partial<W: Write>(&mut self,
-                                wr: &mut W,
-                                stack: &mut Vec<&Data>,
-                                name: &str,
-                                indent: &str) -> Result<()> {
+    fn render_partial<W: Write>(
+        &mut self,
+        wr: &mut W,
+        stack: &mut Vec<&Data>,
+        name: &str,
+        indent: &str,
+    ) -> Result<()> {
         match self.template.partials.get(name) {
             None => (),
-            Some(ref tokens) => {
+            Some(tokens) => {
                 let mut indent = self.indent.clone() + indent;
 
                 mem::swap(&mut self.indent, &mut indent);
-                self.render(wr, stack, &tokens)?;
+                self.render(wr, stack, tokens)?;
                 mem::swap(&mut self.indent, &mut indent);
             }
         };
@@ -305,19 +330,22 @@ impl<'a> RenderContext<'a> {
         Ok(())
     }
 
-    fn render_fun(&self,
-                  src: &str,
-                  otag: &str,
-                  ctag: &str,
-                  f: &mut Box<dyn FnMut(String) -> String + Send + 'static>)
-                  -> Result<Vec<Token>> {
+    fn render_fun(
+        &self,
+        src: &str,
+        otag: &str,
+        ctag: &str,
+        f: &mut Box<dyn FnMut(String) -> String + Send + 'static>,
+    ) -> Result<Vec<Token>> {
         let src = f(src.to_string());
 
-        let compiler = Compiler::new_with(self.template.ctx.clone(),
-                                          src.chars(),
-                                          self.template.partials.clone(),
-                                          otag.to_string(),
-                                          ctag.to_string());
+        let compiler = Compiler::new_with(
+            self.template.ctx.clone(),
+            src.chars(),
+            self.template.partials.clone(),
+            otag.to_string(),
+            ctag.to_string(),
+        );
 
         let (tokens, _) = compiler.compile()?;
         Ok(tokens)
@@ -347,7 +375,7 @@ impl<'a> RenderContext<'a> {
                         break;
                     }
                 }
-                _ => { /* continue searching the stack */ },
+                _ => { /* continue searching the stack */ }
             }
         }
 
@@ -361,16 +389,14 @@ impl<'a> RenderContext<'a> {
 
         for part in path[1..].iter() {
             match *value {
-                Data::Map(ref m) => {
-                    match m.get(part) {
-                        Some(v) => {
-                            value = v;
-                        }
-                        None => {
-                            return None;
-                        }
+                Data::Map(ref m) => match m.get(part) {
+                    Some(v) => {
+                        value = v;
                     }
-                }
+                    None => {
+                        return None;
+                    }
+                },
                 _ => {
                     return None;
                 }

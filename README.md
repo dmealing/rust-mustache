@@ -1,5 +1,10 @@
-Mustache [![Ohloh statistics](http://www.ohloh.net/p/rust-mustache/widgets/project_thin_badge.gif)](https://www.ohloh.net/p/rust-mustache) [![Build Status](http://travis-ci.org/nickel-org/rust-mustache.png?branch=master)](https://travis-ci.org/nickel-org/rust-mustache) [![](http://meritbadge.herokuapp.com/mustache)](https://crates.io/crates/mustache)
+Mustache
 ========
+
+> **This is a maintained fork** of [nickel-org/rust-mustache](https://github.com/nickel-org/rust-mustache),
+> published as the `mustache-ng` crate. The library is still imported as
+> `mustache`, so existing `use mustache::...` code keeps working. Many thanks to
+> the nickel-org maintainers and the original author for the foundation.
 
 Inspired by [ctemplate][1] and [et][2], [Mustache][3] is a framework-agnostic way
 to render logic-free views.
@@ -15,24 +20,34 @@ The different Mustache tags are documented at [mustache(5)][4].
 
 Documentation for this library is [here][5].
 
+## Spec support
+
+This crate is tested against the official [Mustache spec](https://github.com/mustache/spec).
+Supported: the required modules (comments, delimiters, interpolation, inverted
+sections, partials, sections) and the optional lambdas module. Not supported:
+the optional inheritance and dynamic names modules. Their spec tests are kept
+in the suite but ignored (`cargo test -- --ignored` runs them).
+
+Behaviour changes from `mustache` 0.9: standalone tags are now stripped
+correctly when they follow another standalone tag, and a boolean interpolated
+with `{{flag}}` renders as `true` or `false` (it used to render nothing).
+
 ## Install
 
-Install it through Cargo!
+Install it through Cargo! The minimum supported Rust version is 1.61.
 
 ```toml
 [dependencies]
-mustache = "*"
+mustache-ng = "0.10"
+serde = { version = "1", features = ["derive"] } # for the example below
 ```
 
 # Basic example
 
 ```rust
-#[macro_use]
-extern crate serde_derive;
-extern crate mustache;
-
 use std::io;
 use mustache::MapBuilder;
+use serde::Serialize;
 
 #[derive(Serialize)]
 struct Planet {
@@ -90,8 +105,6 @@ git submodule update
 
 cargo test
 
-# If you want to test the readme example, we're currently using the unstable feature to do so.
-cargo +nightly test --features unstable
 ```
 
 ## Releasing
@@ -118,7 +131,7 @@ git push --tags origin master
 [2]: http://www.ivan.fomichev.name/2008/05/erlang-template-engine-prototype.html
 [3]: https://mustache.github.io/
 [4]: https://mustache.github.io/mustache.5.html
-[5]: https://docs.rs/mustache
+[5]: https://docs.rs/mustache-ng
 
 # License
 
