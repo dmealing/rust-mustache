@@ -20,6 +20,14 @@ The different Mustache tags are documented at [mustache(5)][4].
 
 Documentation for this library is [here][5].
 
+## Spec support
+
+This crate is tested against the official [Mustache spec](https://github.com/mustache/spec).
+Supported: the required modules (comments, delimiters, interpolation, inverted
+sections, partials, sections) and the optional lambdas module. Not supported:
+the optional inheritance and dynamic names modules. Their spec tests are kept
+in the suite but ignored (`cargo test -- --ignored` runs them).
+
 ## Install
 
 Install it through Cargo!

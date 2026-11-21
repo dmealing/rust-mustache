@@ -630,6 +630,18 @@ fn test_spec_lambdas() {
 }
 
 #[test]
+#[ignore = "optional spec module (~inheritance) is not supported"]
+fn test_spec_inheritance() {
+    run_tests("spec/specs/~inheritance.json");
+}
+
+#[test]
+#[ignore = "optional spec module (~dynamic-names) is not supported"]
+fn test_spec_dynamic_names() {
+    run_tests("spec/specs/~dynamic-names.json");
+}
+
+#[test]
 fn test_render_bool_values() {
     let data = mustache::MapBuilder::new()
         .insert_bool("t", true)
