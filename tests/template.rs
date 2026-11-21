@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use tempdir::TempDir;
+use tempfile::TempDir;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::Write;
@@ -10,7 +10,6 @@ use mustache::{self, Data, Error, to_data};
 use mustache::{Context, Template};
 
 use serde::Serialize;
-use serde_json;
 use serde_json::Value as Json;
 
 #[derive(Debug, Serialize)]
@@ -33,7 +32,7 @@ struct Person {
 }
 
 fn compile_str(s: &str) -> Template {
-    mustache::compile_str(s).expect(&format!("Failed to compile: {}", s))
+    mustache::compile_str(s).unwrap_or_else(|_| panic!("Failed to compile: {}", s))
 }
 
 fn assert_render<T>(template: &str, data: &T) -> String
@@ -422,14 +421,14 @@ fn assert_partials_data(template: Template) {
     let ctx1 = HashMap::new();
     ctx0.insert("names".to_string(), Data::Vec(vec![Data::Map(ctx1)]));
     assert_eq!(render_data(&template, &Data::Map(ctx0)),
-               "<h2>Names</h2>\n  <strong></strong>\n\n".to_string());
+               "<h2>Names</h2>\n  <strong></strong>\n".to_string());
 
     let mut ctx0 = HashMap::new();
     let mut ctx1 = HashMap::new();
     ctx1.insert("name".to_string(), Data::String("a".to_string()));
     ctx0.insert("names".to_string(), Data::Vec(vec![Data::Map(ctx1)]));
     assert_eq!(render_data(&template, &Data::Map(ctx0)),
-               "<h2>Names</h2>\n  <strong>a</strong>\n\n".to_string());
+               "<h2>Names</h2>\n  <strong>a</strong>\n".to_string());
 
     let mut ctx0 = HashMap::new();
     let mut ctx1 = HashMap::new();
@@ -438,7 +437,7 @@ fn assert_partials_data(template: Template) {
     ctx2.insert("name".to_string(), Data::String("<b>".to_string()));
     ctx0.insert("names".to_string(), Data::Vec(vec![Data::Map(ctx1), Data::Map(ctx2)]));
     assert_eq!(render_data(&template, &Data::Map(ctx0)),
-               "<h2>Names</h2>\n  <strong>a</strong>\n\n  <strong>&lt;b&gt;</strong>\n\n"
+               "<h2>Names</h2>\n  <strong>a</strong>\n  <strong>&lt;b&gt;</strong>\n"
                    .to_string());
 }
 
@@ -457,9 +456,9 @@ fn test_render_partial() {
 fn parse_spec_tests(src: &str) -> Vec<Json> {
     let path = PathBuf::from(src);
     let file = File::open(&path)
-        .expect(&format!("Could not read file {}", path.display()));
+        .unwrap_or_else(|_| panic!("Could not read file {}", path.display()));
     let json = serde_json::from_reader(file)
-        .expect(&format!("Invalid json in file {}", path.display()));
+        .unwrap_or_else(|_| panic!("Invalid json in file {}", path.display()));
 
     assert_let!(Json::Object(mut d) = json => {
         assert_let!(Some(Json::Array(tests)) = d.remove("tests") => {
@@ -482,17 +481,17 @@ fn write_partials(tmpdir: &Path, value: &Json) {
 }
 
 fn run_test(test: serde_json::Map<String, Json>, data: Data) {
-    let template = assert_let!(Some(&Json::String(ref s)) = test.get("template") => {
+    let template = assert_let!(Some(Json::String(s)) = test.get("template") => {
         s.clone()
     });
 
-    let expected = assert_let!(Some(&Json::String(ref s)) = test.get("expected") => {
+    let expected = assert_let!(Some(Json::String(s)) = test.get("expected") => {
         s.clone()
     });
 
     // Make a temporary dir where we'll store our partials. This is to
     // avoid a race on filenames.
-    let tmpdir = TempDir::new("").expect("Failed to make tempdir");
+    let tmpdir = TempDir::new().expect("Failed to make tempdir");
 
     if let Some(value) = test.get("partials") {
         write_partials(tmpdir.path(), value)
@@ -500,7 +499,7 @@ fn run_test(test: serde_json::Map<String, Json>, data: Data) {
 
     let ctx = Context::new(tmpdir.path().to_path_buf());
     let template = ctx.compile(template.chars())
-                      .expect(&format!("Failed to compile: {}", template));
+                      .unwrap_or_else(|_| panic!("Failed to compile: {}", template));
     let result = render_data(&template, &data);
 
     if result != expected {
@@ -510,7 +509,7 @@ fn run_test(test: serde_json::Map<String, Json>, data: Data) {
         println!("template: {:?}", template);
         println!("expected: {}", expected);
         println!("actual:   {}", result);
-        println!("");
+        println!();
     }
     assert_eq!(result, expected);
 }
@@ -627,5 +626,106 @@ fn test_spec_lambdas() {
         };
 
         run_test(test, Data::Map(ctx));
+    }
+}
+
+#[test]
+fn test_render_bool_values() {
+    let data = mustache::MapBuilder::new()
+        .insert_bool("t", true)
+        .insert_bool("f", false)
+        .build();
+    let template = compile_str("{{t}} {{f}} {{{t}}} {{&f}}");
+    assert_eq!(render_data(&template, &data), "true false true false");
+}
+
+// Standalone tags are decided against the original template text, so a tag
+// that follows another standalone tag is still standalone.
+mod standalone {
+    use mustache::{self, MapBuilder};
+
+    fn render(template: &str) -> String {
+        let data = MapBuilder::new()
+            .insert_bool("yes", true)
+            .insert_bool("no", false)
+            .insert_str("v", "val")
+            .build();
+        mustache::compile_str(template)
+            .expect("Failed to compile")
+            .render_data_to_string(&data)
+            .expect("Failed to render")
+    }
+
+    #[test]
+    fn consecutive_comments() {
+        assert_eq!(render("a\n{{! one }}\n{{! two }}\n{{! three }}\nb\n"), "a\nb\n");
+    }
+
+    #[test]
+    fn consecutive_section_tags() {
+        assert_eq!(render("a\n{{#yes}}\n{{/yes}}\n{{^no}}\n{{/no}}\nb\n"), "a\nb\n");
+        assert_eq!(render("a\n{{#yes}}\n{{#yes}}\nx\n{{/yes}}\n{{/yes}}\nb\n"), "a\nx\nb\n");
+        assert_eq!(render("a\n{{^no}}\n{{^no}}\nx\n{{/no}}\n{{/no}}\nb\n"), "a\nx\nb\n");
+    }
+
+    #[test]
+    fn close_followed_by_standalone_tag() {
+        assert_eq!(render("{{#yes}}\nx\n{{/yes}}\n{{! c }}\nb\n"), "x\nb\n");
+        assert_eq!(render("{{#yes}}\nx\n{{/yes}}\n{{#yes}}\ny\n{{/yes}}\nb\n"), "x\ny\nb\n");
+    }
+
+    #[test]
+    fn standalone_followed_by_text() {
+        assert_eq!(render("{{#no}}\nx\n{{/no}}\n{{! c }}\nb\n"), "b\n");
+    }
+
+    #[test]
+    fn standalone_tag_at_end_of_file() {
+        assert_eq!(render("a\n{{! c }}"), "a\n");
+        assert_eq!(render("a\n{{! c }}\n{{! d }}"), "a\n");
+        assert_eq!(render("a\n{{#yes}}\nb\n{{/yes}}"), "a\nb\n");
+        assert_eq!(render("a\n  {{! c }}  "), "a\n");
+        assert_eq!(render("{{! c }}"), "");
+    }
+
+    #[test]
+    fn indented_standalone_tags() {
+        assert_eq!(render("a\n  {{! c }}\n  {{! d }}\nb\n"), "a\nb\n");
+        assert_eq!(render("a\n\t{{#yes}}\n\t  x\n\t{{/yes}}\nb\n"), "a\n\t  x\nb\n");
+        assert_eq!(render("a\n  {{#yes}}\n  {{/yes}}\n  {{^no}}\n  {{/no}}\nb\n"), "a\nb\n");
+    }
+
+    #[test]
+    fn standalone_tag_with_trailing_blanks() {
+        assert_eq!(render("a\n{{! c }}  \n{{! d }}\t\nb\n"), "a\nb\n");
+    }
+
+    #[test]
+    fn standalone_tags_with_crlf() {
+        assert_eq!(render("a\r\n{{! c }}\r\n{{! d }}\r\nb\r\n"), "a\r\nb\r\n");
+        assert_eq!(render("a\r\n{{#yes}}\r\n{{/yes}}\r\n{{^no}}\r\n{{/no}}\r\nb\r\n"), "a\r\nb\r\n");
+    }
+
+    #[test]
+    fn standalone_delimiter_changes() {
+        assert_eq!(render("a\n{{=<% %>=}}\n<%! c %>\n<%={{ }}=%>\nb\n"), "a\nb\n");
+    }
+
+    #[test]
+    fn standalone_comments_around_sections() {
+        assert_eq!(render("a\n{{! c }}\n{{#yes}}\n{{! d }}\nx\n{{! e }}\n{{/yes}}\n{{! f }}\nb\n"), "a\nx\nb\n");
+    }
+
+    #[test]
+    fn tags_sharing_a_line_are_not_standalone() {
+        assert_eq!(render("a\n{{! c }}{{! d }}\nb\n"), "a\n\nb\n");
+        assert_eq!(render("a\n{{#yes}}{{/yes}}\nb\n"), "a\n\nb\n");
+        assert_eq!(render("a\n{{! c }} x\nb\n"), "a\n x\nb\n");
+        assert_eq!(render("a\n x {{! c }}\nb\n"), "a\n x \nb\n");
+    }
+
+    #[test]
+    fn interpolation_is_never_standalone() {
+        assert_eq!(render("a\n{{&v}}\nb\n"), "a\nval\nb\n");
     }
 }

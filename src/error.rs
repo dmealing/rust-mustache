@@ -2,14 +2,15 @@ use std::fmt;
 use std::io::Error as StdIoError;
 use std::result::Result as StdResult;
 
-use parser;
-use encoder;
+use crate::parser;
+use crate::encoder;
 
 /// Error type for any error within this library.
 ///
 /// This type is not intended to be matched exhaustively as new variants
 /// may be added in future without a version bump.
 #[derive(Debug)]
+#[allow(clippy::manual_non_exhaustive)]
 pub enum Error {
     InvalidStr,
     NoFilename,

@@ -1,8 +1,6 @@
 #![cfg_attr(feature = "unstable", feature(external_doc))]
 #![cfg_attr(feature = "unstable", doc(include = "../README.md"))]
 
-extern crate log;
-extern crate serde;
 
 use std::str;
 use std::path::{PathBuf, Path};

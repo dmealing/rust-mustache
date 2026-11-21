@@ -55,7 +55,7 @@ fn test_map_fn_builder() {
         .build();
 
     assert_let!(Data::Map(m) = data => {
-        assert_let!(Some(&Data::Fun(ref f)) = m.get("count") => {
+        assert_let!(Some(Data::Fun(f)) = m.get("count") => {
             let f = &mut *f.borrow_mut();
             assert_eq!((*f)("count: ".to_string()), "count: 1".to_string());
             assert_eq!((*f)("count: ".to_string()), "count: 2".to_string());
@@ -80,7 +80,7 @@ fn test_vec_fn_builder() {
     assert_let!(Data::Vec(vs) = data => {
         let mut iter = vs.iter();
 
-        assert_let!(Some(&Data::Fun(ref f)) = iter.next() => {
+        assert_let!(Some(Data::Fun(f)) = iter.next() => {
             let f = &mut *f.borrow_mut();
             assert_eq!((*f)("count: ".to_string()), "count: 1".to_string());
             assert_eq!((*f)("count: ".to_string()), "count: 2".to_string());

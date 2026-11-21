@@ -3,10 +3,10 @@ use std::io::ErrorKind::NotFound;
 use std::io::Read;
 use std::fs::File;
 
-use parser::{Parser, Token};
+use crate::parser::{Parser, Token};
 use super::Context;
 
-use Result;
+use crate::Result;
 
 pub type PartialsMap = HashMap<String, Vec<Token>>;
 
@@ -23,8 +23,8 @@ impl<T: Iterator<Item = char>> Compiler<T> {
     /// Construct a default compiler.
     pub fn new(ctx: Context, reader: T) -> Compiler<T> {
         Compiler {
-            ctx: ctx,
-            reader: reader,
+            ctx,
+            reader,
             partials: HashMap::new(),
             otag: "{{".to_string(),
             ctag: "}}".to_string(),
@@ -39,11 +39,11 @@ impl<T: Iterator<Item = char>> Compiler<T> {
                     ctag: String)
                     -> Compiler<T> {
         Compiler {
-            ctx: ctx,
-            reader: reader,
-            partials: partials,
-            otag: otag,
-            ctag: ctag,
+            ctx,
+            reader,
+            partials,
+            otag,
+            ctag,
         }
     }
 
@@ -79,7 +79,7 @@ impl<T: Iterator<Item = char>> Compiler<T> {
                         let (tokens, subpartials) = compiler.compile()?;
 
                         // Include subpartials
-                        self.partials.extend(subpartials.into_iter());
+                        self.partials.extend(subpartials);
 
                         // Set final compiled tokens for *this* partial
                         self.partials.insert(name, tokens);
@@ -101,9 +101,9 @@ impl<T: Iterator<Item = char>> Compiler<T> {
 mod tests {
     use std::path::PathBuf;
 
-    use parser::Token;
-    use compiler::Compiler;
-    use context::Context;
+    use crate::parser::Token;
+    use crate::compiler::Compiler;
+    use crate::context::Context;
 
     fn compile_str(template: &str) -> Vec<Token> {
         let ctx = Context::new(PathBuf::from("."));

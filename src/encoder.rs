@@ -12,6 +12,7 @@ use super::{Data, to_data};
 /// This type is not intended to be matched exhaustively as new variants
 /// may be added in future without a version bump.
 #[derive(Debug)]
+#[allow(clippy::manual_non_exhaustive)]
 pub enum Error {
     NestedOptions,
     UnsupportedType,
@@ -54,7 +55,7 @@ pub struct Encoder;
 
 impl Encoder {
     pub fn new() -> Encoder {
-        Encoder::default()
+        Encoder
     }
 }
 
@@ -146,9 +147,9 @@ impl serde::Serializer for Encoder {
         Ok(Data::Null)
     }
 
-    fn serialize_some<T: ? Sized>(self, value: &T) -> Result<Data>
+    fn serialize_some<T>(self, value: &T) -> Result<Data>
     where
-        T: Serialize
+        T: ?Sized + Serialize
     {
         value.serialize(self)
     }
@@ -174,19 +175,19 @@ impl serde::Serializer for Encoder {
         })
     }
 
-    fn serialize_newtype_struct<T: ?Sized>(
+    fn serialize_newtype_struct<T>(
         self,
         _name: &'static str,
         value: &T,
     ) -> Result<Data>
     where
-        T: Serialize,
+        T: ?Sized + Serialize,
     {
         // Ignore newtype name
         value.serialize(self)
     }
 
-    fn serialize_newtype_variant<T: ?Sized>(
+    fn serialize_newtype_variant<T>(
         self,
         _name: &'static str,
         _variant_index: u32,
@@ -194,7 +195,7 @@ impl serde::Serializer for Encoder {
         value: &T,
     ) -> Result<Data>
     where
-        T: Serialize,
+        T: ?Sized + Serialize,
     {
         // Ignore newtype name
         value.serialize(self)
@@ -274,10 +275,10 @@ impl ser::SerializeSeq for SerializeVec {
     type Ok = Data;
     type Error = Error;
 
-    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<()>
-        where T: Serialize
+    fn serialize_element<T>(&mut self, value: &T) -> Result<()>
+        where T: ?Sized + Serialize
     {
-        self.vec.push(to_data(&value)?);
+        self.vec.push(to_data(value)?);
         Ok(())
     }
 
@@ -290,8 +291,8 @@ impl ser::SerializeTuple for SerializeVec {
     type Ok = Data;
     type Error = Error;
 
-    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<()>
-        where T: Serialize
+    fn serialize_element<T>(&mut self, value: &T) -> Result<()>
+        where T: ?Sized + Serialize
     {
         ser::SerializeSeq::serialize_element(self, value)
     }
@@ -305,8 +306,8 @@ impl ser::SerializeTupleStruct for SerializeVec {
     type Ok = Data;
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<()>
-        where T: Serialize
+    fn serialize_field<T>(&mut self, value: &T) -> Result<()>
+        where T: ?Sized + Serialize
     {
         ser::SerializeSeq::serialize_element(self, value)
     }
@@ -320,10 +321,10 @@ impl ser::SerializeTupleVariant for SerializeTupleVariant {
     type Ok = Data;
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<()>
-        where T: Serialize
+    fn serialize_field<T>(&mut self, value: &T) -> Result<()>
+        where T: ?Sized + Serialize
     {
-        self.vec.push(to_data(&value)?);
+        self.vec.push(to_data(value)?);
         Ok(())
     }
 
@@ -340,9 +341,9 @@ impl ser::SerializeMap for SerializeMap {
     type Ok = Data;
     type Error = Error;
 
-    fn serialize_key<T: ?Sized>(&mut self, key: &T) -> Result<()>
+    fn serialize_key<T>(&mut self, key: &T) -> Result<()>
     where
-        T: Serialize
+        T: ?Sized + Serialize
     {
         match to_data(key)? {
             Data::String(s) => {
@@ -353,14 +354,14 @@ impl ser::SerializeMap for SerializeMap {
         }
     }
 
-    fn serialize_value<T: ?Sized>(&mut self, value: &T) -> Result<()>
+    fn serialize_value<T>(&mut self, value: &T) -> Result<()>
     where
-        T: Serialize
+        T: ?Sized + Serialize
     {
         // Taking the key should only fail if this gets called before
         // serialize_key, which is a bug in the library.
         let key = self.next_key.take().ok_or(Error::MissingElements)?;
-        self.map.insert(key, to_data(&value)?);
+        self.map.insert(key, to_data(value)?);
         Ok(())
     }
 
@@ -373,9 +374,9 @@ impl ser::SerializeStruct for SerializeMap {
     type Ok = Data;
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, key: &'static str, value: &T) -> Result<()>
+    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<()>
     where
-        T: Serialize
+        T: ?Sized + Serialize
     {
         ser::SerializeMap::serialize_key(self, key)?;
         ser::SerializeMap::serialize_value(self, value)
@@ -390,11 +391,11 @@ impl ser::SerializeStructVariant for SerializeStructVariant {
     type Ok = Data;
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, key: &'static str, value: &T) -> Result<()>
+    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<()>
     where
-        T: Serialize,
+        T: ?Sized + Serialize,
     {
-        self.map.insert(String::from(key), to_data(&value)?);
+        self.map.insert(String::from(key), to_data(value)?);
         Ok(())
     }
 

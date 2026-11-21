@@ -3,10 +3,10 @@ use std::mem;
 use std::io::Write;
 use std::str;
 
-use compiler::Compiler;
+use crate::compiler::Compiler;
 // for bug!
-use log::{log, error};
-use parser::Token;
+use log::error;
+use crate::parser::Token;
 use serde::Serialize;
 
 use super::{Context, Data, Error, Result, to_data};
@@ -23,9 +23,9 @@ pub struct Template {
 /// not exported outside of mustache.
 pub fn new(ctx: Context, tokens: Vec<Token>, partials: HashMap<String, Vec<Token>>) -> Template {
     Template {
-        ctx: ctx,
-        tokens: tokens,
-        partials: partials,
+        ctx,
+        tokens,
+        partials,
     }
 }
 
@@ -71,7 +71,7 @@ struct RenderContext<'a> {
 impl<'a> RenderContext<'a> {
     fn new(template: &'a Template) -> RenderContext<'a> {
         RenderContext {
-            template: template,
+            template,
             indent: "".to_string(),
             line_start: true,
         }
@@ -210,6 +210,11 @@ impl<'a> RenderContext<'a> {
                         self.render(wr, stack, &tokens)?;
                     }
 
+                    Data::Bool(val) => {
+                        let s = if val { "true" } else { "false" };
+                        self.write_tracking_newlines(wr, s)?;
+                    }
+
                     ref value => {
                         bug!("render_utag: unexpected value {:?}", value);
                     }
@@ -229,7 +234,7 @@ impl<'a> RenderContext<'a> {
             None => {}
             Some(&Data::Null) => {}
             Some(&Data::Bool(false)) => {}
-            Some(&Data::Vec(ref xs)) if xs.is_empty() => {}
+            Some(Data::Vec(xs)) if xs.is_empty() => {}
             Some(_) => {
                 return Ok(());
             }
@@ -238,6 +243,7 @@ impl<'a> RenderContext<'a> {
         self.render(wr, stack, children)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_section<W: Write>(&mut self,
                                 wr: &mut W,
                                 stack: &mut Vec<&Data>,
@@ -293,11 +299,11 @@ impl<'a> RenderContext<'a> {
                                 indent: &str) -> Result<()> {
         match self.template.partials.get(name) {
             None => (),
-            Some(ref tokens) => {
+            Some(tokens) => {
                 let mut indent = self.indent.clone() + indent;
 
                 mem::swap(&mut self.indent, &mut indent);
-                self.render(wr, stack, &tokens)?;
+                self.render(wr, stack, tokens)?;
                 mem::swap(&mut self.indent, &mut indent);
             }
         };

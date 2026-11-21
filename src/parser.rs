@@ -3,7 +3,7 @@ use std::mem;
 use std::fmt;
 
 // for bug!
-use log::{log, error};
+use log::error;
 
 /// `Token` is a section of a compiled mustache string.
 #[derive(Clone, Debug, PartialEq)]
@@ -12,7 +12,7 @@ pub enum Token {
     EscapedTag(Vec<String>, String),
     UnescapedTag(Vec<String>, String),
     Section(Vec<String>, bool, Vec<Token>, String, String, String, String, String),
-    IncompleteSection(Vec<String>, bool, String, bool),
+    IncompleteSection(Vec<String>, bool, String),
     Partial(String, String, String),
 }
 
@@ -21,6 +21,7 @@ pub enum Token {
 /// This type is not intended to be matched exhaustively as new variants
 /// may be added in future without a version bump.
 #[derive(Debug, PartialEq)]
+#[allow(clippy::manual_non_exhaustive)]
 pub enum Error {
     BadClosingTag(char, char),
     UnclosedTag,
@@ -54,19 +55,31 @@ impl fmt::Display for Error {
     }
 }
 
-enum TokenClass {
-    Normal,
-    StandAlone,
-    WhiteSpace(String, usize),
+/// A piece of the template as it appears in the source, before any
+/// whitespace handling has been applied.
+enum Item {
+    Text(String),
+    Tag {
+        /// Everything between the delimiters.
+        content: String,
+        /// The tag as written, including the delimiters in force at that point.
+        source: String,
+    },
 }
 
 /// `Parser` parses a string into a series of `Token`s.
+///
+/// Parsing happens in three passes so that whether a tag is "standalone"
+/// is always decided against the original text, never against text that
+/// an earlier tag has already trimmed:
+///
+/// 1. `scan` splits the input into raw text and tag items.
+/// 2. `analyze` decides which tags are standalone and how much whitespace
+///    around each of them has to go.
+/// 3. `build` applies those decisions and assembles the tokens.
 pub struct Parser<'a, T: 'a> {
     reader: &'a mut T,
     ch: Option<char>,
-    lookahead: Option<char>,
-    line: usize,
-    col: usize,
     content: String,
     state: ParserState,
     opening_tag: String,
@@ -74,6 +87,7 @@ pub struct Parser<'a, T: 'a> {
     opening_tag_chars: Vec<char>,
     closing_tag_chars: Vec<char>,
     tag_position: usize,
+    items: Vec<Item>,
     tokens: Vec<Token>,
     partials: Vec<String>,
 }
@@ -85,14 +99,24 @@ enum ParserState {
     ClosingTag,
 }
 
+fn is_blank(c: char) -> bool {
+    c == ' ' || c == '\t'
+}
+
+/// Whitespace to remove around the item at the same index.
+#[derive(Clone, Copy, Default)]
+struct Cut {
+    /// Bytes to drop from the start of a text item.
+    start: usize,
+    /// Bytes to drop from the end of a text item.
+    end: usize,
+}
+
 impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
     pub fn new(reader: &'a mut T, opening_tag: &str, closing_tag: &str) -> Parser<'a, T> {
         let mut parser = Parser {
-            reader: reader,
+            reader,
             ch: None,
-            lookahead: None,
-            line: 1,
-            col: 1,
             content: String::new(),
             state: ParserState::Text,
             opening_tag: opening_tag.to_string(),
@@ -100,6 +124,7 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
             opening_tag_chars: opening_tag.chars().collect(),
             closing_tag_chars: closing_tag.chars().collect(),
             tag_position: 0,
+            items: Vec::new(),
             tokens: Vec::new(),
             partials: Vec::new(),
         };
@@ -109,44 +134,30 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
     }
 
     fn bump(&mut self) {
-        match self.lookahead.take() {
-            None => {
-                self.ch = self.reader.next();
-            }
-            Some(ch) => {
-                self.ch = Some(ch);
-            }
-        }
-
-        if let Some(ch) = self.ch {
-            if ch == '\n' {
-                self.line += 1;
-                self.col = 1;
-            } else {
-                self.col += 1;
-            }
-        }
-    }
-
-    fn peek(&mut self) -> Option<char> {
-        match self.lookahead {
-            None => {
-                self.lookahead = self.reader.next();
-                self.lookahead
-            }
-            Some(ch) => Some(ch),
-        }
-    }
-
-    fn ch_is(&self, ch: char) -> bool {
-        match self.ch {
-            Some(c) => c == ch,
-            None => false,
-        }
+        self.ch = self.reader.next();
     }
 
     /// Parse the template into tokens and a list of partial files.
     pub fn parse(mut self) -> Result<(Vec<Token>, Vec<String>), Error> {
+        self.scan()?;
+        let (cuts, indents) = self.analyze();
+        self.build(&cuts, &indents)?;
+
+        // Check that we don't have any incomplete sections.
+        for token in self.tokens.iter().rev() {
+            if let Token::IncompleteSection(ref path, _, _) = *token {
+                return Err(Error::UnclosedSection(path.join(".")))
+            }
+        }
+
+        let Parser { tokens, partials, .. } = self;
+
+        Ok((tokens, partials))
+    }
+
+    /// Pass 1: split the input into text and tags. Delimiter changes take
+    /// effect here, since they decide where the following tags start.
+    fn scan(&mut self) -> Result<(), Error> {
         let mut curly_brace_tag = false;
 
         while let Some(ch) = self.ch {
@@ -172,7 +183,7 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
                             curly_brace_tag = false;
                             self.state = ParserState::Tag;
                         } else {
-                            self.tag_position = self.tag_position + 1;
+                            self.tag_position += 1;
                         }
                     } else {
                         // We don't have a tag, so add all the tag parts we've seen
@@ -198,7 +209,7 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
                             self.state = ParserState::ClosingTag;
                             self.bump();
                         } else {
-                            self.add_tag()?;
+                            self.scan_tag()?;
                             self.state = ParserState::Text;
                         }
                     } else {
@@ -209,7 +220,7 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
                 ParserState::ClosingTag => {
                     if ch == self.closing_tag_chars[self.tag_position] {
                         if self.tag_position == self.closing_tag_chars.len() - 1 {
-                            self.add_tag()?;
+                            self.scan_tag()?;
                             self.state = ParserState::Text;
                         } else {
                             self.state = ParserState::Tag;
@@ -240,120 +251,182 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
             ParserState::Tag => return Err(Error::UnclosedTag),
         }
 
-        // Check that we don't have any incomplete sections.
-        for token in self.tokens.iter().rev() {
-            if let Token::IncompleteSection(ref path, _, _, _) = *token {
-                return Err(Error::UnclosedSection(path.join(".")))
-            }
-        }
-
-        let Parser { tokens, partials, .. } = self;
-
-        Ok((tokens, partials))
+        Ok(())
     }
 
     fn add_text(&mut self) {
         if !self.content.is_empty() {
-            let mut content = String::new();
-            mem::swap(&mut content, &mut self.content);
-
-            self.tokens.push(Token::Text(content));
+            let content = mem::take(&mut self.content);
+            self.items.push(Item::Text(content));
         }
     }
 
-    // This function classifies whether or not a token is standalone, or if it
-    // has trailing whitespace. It's looking for this pattern:
-    //
-    //   ("\n" | "\r\n") whitespace* token ("\n" | "\r\n")
-    //
-    fn classify_token(&mut self) -> TokenClass {
-        // Exit early if the next character is not '\n' or '\r\n'.
-        if let Some(ch) = self.ch {
-            if !(ch == '\n' || (ch == '\r' && self.peek() == Some('\n'))) {
-                return TokenClass::Normal;
-            }
-        }
-
-        match self.tokens.last() {
-            // If the last token ends with a newline (or there is no previous
-            // token), then this token is standalone.
-            None => TokenClass::StandAlone,
-
-            Some(&Token::IncompleteSection(_, _, _, true)) => TokenClass::StandAlone,
-
-            Some(&Token::Text(ref s)) if !s.is_empty() => {
-                // Look for the last newline character that may have whitespace
-                // following it.
-                match s.rfind(|c: char| c == '\n' || !c.is_whitespace()) {
-                    // It's all whitespace.
-                    None => {
-                        if self.tokens.len() == 1 {
-                            TokenClass::WhiteSpace(s.clone(), 0)
-                        } else {
-                            TokenClass::Normal
-                        }
-                    }
-                    Some(pos) => {
-                        if s.as_bytes()[pos] == b'\n' {
-                            if pos == s.len() - 1 {
-                                TokenClass::StandAlone
-                            } else {
-                                TokenClass::WhiteSpace(s.clone(), pos + 1)
-                            }
-                        } else {
-                            TokenClass::Normal
-                        }
-                    }
-                }
-            }
-            Some(_) => TokenClass::Normal,
-        }
-    }
-
-    fn eat_whitespace(&mut self) -> bool {
-        // If the next character is a newline, and the last token ends with a
-        // newline and whitespace, clear out the whitespace.
-
-        match self.classify_token() {
-            TokenClass::Normal => false,
-            TokenClass::StandAlone => {
-                if self.ch_is('\r') {
-                    self.bump();
-                }
-                self.bump();
-                true
-            }
-            TokenClass::WhiteSpace(s, pos) => {
-                if self.ch_is('\r') {
-                    self.bump();
-                }
-                self.bump();
-
-                // Trim the whitespace from the last token.
-                self.tokens.pop();
-                self.tokens.push(Token::Text(s[0..pos].to_string()));
-
-                true
-            }
-        }
-    }
-
-    fn add_tag(&mut self) -> Result<(), Error> {
+    /// Record the tag that has just been closed, applying a delimiter
+    /// change if that is what it is.
+    fn scan_tag(&mut self) -> Result<(), Error> {
         self.bump();
 
-        let tag = self.opening_tag.clone() + &self.content + &self.closing_tag;
-
-        // Move the content to avoid a copy.
-        let mut content = String::new();
-        mem::swap(&mut content, &mut self.content);
-        let len = content.len();
+        let source = self.opening_tag.clone() + &self.content + &self.closing_tag;
+        let content = mem::take(&mut self.content);
         deny_blank(&content)?;
-        let content = content;
+
+        if content.starts_with('=') {
+            self.set_delimiters(&content)?;
+        }
+
+        self.items.push(Item::Tag { content, source });
+        Ok(())
+    }
+
+    fn set_delimiters(&mut self, content: &str) -> Result<(), Error> {
+        let len = content.len();
+
+        if len > 2usize && content.ends_with('=') {
+            let s = deny_blank(&content[1..len - 1])?;
+
+            let pos = s.find(char::is_whitespace);
+            let pos = match pos {
+                None => return Err(Error::MissingSetDelimeterClosingTag),
+                Some(pos) => pos,
+            };
+
+            self.opening_tag = s[0..pos].to_string();
+            self.opening_tag_chars = self.opening_tag.chars().collect();
+
+            let s2 = &s[pos..];
+            let pos = s2.find(|c: char| !c.is_whitespace());
+            let pos = match pos {
+                None => return Err(Error::MissingSetDelimeterClosingTag),
+                Some(pos) => pos,
+            };
+
+            self.closing_tag = s2[pos..].to_string();
+            self.closing_tag_chars = self.closing_tag.chars().collect();
+            Ok(())
+        } else {
+            Err(Error::InvalidSetDelimeterSyntax)
+        }
+    }
+
+    /// Pass 2: decide, for every tag, whether it is standalone, looking only
+    /// at the original items. A standalone tag is a comment, section,
+    /// inverted section, close, partial or delimiter tag that is alone on its
+    /// line, apart from blanks:
+    ///
+    ///   (line start) blank* tag blank* ("\n" | "\r\n" | end of input)
+    ///
+    /// Returns the whitespace to cut from each text item, and, for each
+    /// standalone tag, the length in bytes of its indentation.
+    fn analyze(&self) -> (Vec<Cut>, Vec<Option<usize>>) {
+        let mut cuts = vec![Cut::default(); self.items.len()];
+        let mut indents = vec![None; self.items.len()];
+
+        for (i, item) in self.items.iter().enumerate() {
+            let content = match *item {
+                Item::Tag { ref content, .. } => content,
+                Item::Text(_) => continue,
+            };
+
+            if !content.starts_with(&['!', '#', '^', '/', '>', '='][..]) {
+                continue;
+            }
+
+            if let (Some(indent), Some(trailing)) = (self.indent_before(i), self.trailing_after(i)) {
+                indents[i] = Some(indent);
+                if indent > 0 {
+                    cuts[i - 1].end = indent;
+                }
+                if trailing > 0 {
+                    cuts[i + 1].start = trailing;
+                }
+            }
+        }
+
+        (cuts, indents)
+    }
+
+    /// If only blanks sit between the start of the line and the tag at
+    /// `index`, returns how many bytes of them there are.
+    fn indent_before(&self, index: usize) -> Option<usize> {
+        if index == 0 {
+            return Some(0);
+        }
+
+        match self.items[index - 1] {
+            Item::Tag { .. } => None,
+            Item::Text(ref s) => {
+                let line_start = match s.rfind('\n') {
+                    Some(pos) => pos + 1,
+                    // No line break: the line only starts here if this text
+                    // is the very beginning of the input.
+                    None if index == 1 => 0,
+                    None => return None,
+                };
+                let indent = &s[line_start..];
+                if indent.chars().all(is_blank) {
+                    Some(indent.len())
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// If only blanks sit between the tag at `index` and the end of the line,
+    /// returns how many bytes (blanks and line break) to remove after the tag.
+    fn trailing_after(&self, index: usize) -> Option<usize> {
+        match self.items.get(index + 1) {
+            None => Some(0),
+            Some(&Item::Tag { .. }) => None,
+            Some(Item::Text(s)) => {
+                let blanks = s.len() - s.trim_start_matches(is_blank).len();
+                let rest = &s[blanks..];
+                if rest.starts_with('\n') {
+                    Some(blanks + 1)
+                } else if rest.starts_with("\r\n") {
+                    Some(blanks + 2)
+                } else if rest.is_empty() && index + 2 == self.items.len() {
+                    // Blanks up to the end of the input.
+                    Some(blanks)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// Pass 3: apply the whitespace decisions and assemble the tokens.
+    fn build(&mut self, cuts: &[Cut], indents: &[Option<usize>]) -> Result<(), Error> {
+        let items = mem::take(&mut self.items);
+
+        for (i, item) in items.iter().enumerate() {
+            match *item {
+                Item::Text(ref s) => {
+                    let text = &s[cuts[i].start..s.len() - cuts[i].end];
+                    if !text.is_empty() {
+                        self.tokens.push(Token::Text(text.to_string()));
+                    }
+                }
+                Item::Tag { ref content, ref source } => {
+                    let indent = match (indents[i], i.checked_sub(1).map(|prev| &items[prev])) {
+                        (Some(len), Some(Item::Text(s))) => &s[s.len() - len..],
+                        _ => "",
+                    };
+                    self.add_tag(content, source.clone(), indent)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn add_tag(&mut self, content: &str, tag: String, indent: &str) -> Result<(), Error> {
+        let len = content.len();
 
         match content.as_bytes()[0] as char {
-            '!' => {
-                // ignore comments
-                self.eat_whitespace();
+            '!' | '=' => {
+                // Comments are ignored, and delimiter changes were
+                // already applied while scanning.
             }
             '&' => {
                 let name = &content[1..len];
@@ -370,20 +443,14 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
                 }
             }
             '#' => {
-                let newlined = self.eat_whitespace();
-
                 let name = get_name_or_implicit(&content[1..len])?;
-                self.tokens.push(Token::IncompleteSection(name, false, tag, newlined));
+                self.tokens.push(Token::IncompleteSection(name, false, tag));
             }
             '^' => {
-                let newlined = self.eat_whitespace();
-
                 let name = get_name_or_implicit(&content[1..len])?;
-                self.tokens.push(Token::IncompleteSection(name, true, tag, newlined));
+                self.tokens.push(Token::IncompleteSection(name, true, tag));
             }
             '/' => {
-                self.eat_whitespace();
-
                 let name = get_name_or_implicit(&content[1..len])?;
                 let mut children: Vec<Token> = Vec::new();
 
@@ -395,7 +462,7 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
                     let last = self.tokens.pop();
 
                     match last {
-                        Some(Token::IncompleteSection(section_name, inverted, osection, _)) => {
+                        Some(Token::IncompleteSection(section_name, inverted, osection)) => {
                             children.reverse();
 
                             // Collect all the children's sources.
@@ -443,39 +510,11 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
                     }
                 }
             }
-            '>' => self.add_partial(&content, tag)?,
-            '=' => {
-                self.eat_whitespace();
-
-                if len > 2usize && content.ends_with('=') {
-                    let s = deny_blank(&content[1..len - 1])?;
-
-                    let pos = s.find(char::is_whitespace);
-                    let pos = match pos {
-                        None => return Err(Error::MissingSetDelimeterClosingTag),
-                        Some(pos) => pos,
-                    };
-
-                    self.opening_tag = s[0..pos].to_string();
-                    self.opening_tag_chars = self.opening_tag.chars().collect();
-
-                    let s2 = &s[pos..];
-                    let pos = s2.find(|c: char| !c.is_whitespace());
-                    let pos = match pos {
-                        None => return Err(Error::MissingSetDelimeterClosingTag),
-                        Some(pos) => pos,
-                    };
-
-                    self.closing_tag = s2[pos..].to_string();
-                    self.closing_tag_chars = self.closing_tag.chars().collect();
-                } else {
-                    return Err(Error::InvalidSetDelimeterSyntax)
-                }
-            }
+            '>' => self.add_partial(content, tag, indent)?,
             _ => {
                 // If the name is "." then we want the top element, which we represent with
                 // an empty name.
-                let name = get_name_or_implicit(&content)?;
+                let name = get_name_or_implicit(content)?;
                 self.tokens.push(Token::EscapedTag(name, tag));
             }
         };
@@ -483,39 +522,14 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
         Ok(())
     }
 
-    fn add_partial(&mut self, content: &str, tag: String) -> Result<(), Error> {
-        let indent = match self.classify_token() {
-            TokenClass::Normal => "".to_string(),
-            TokenClass::StandAlone => {
-                if self.ch_is('\r') {
-                    self.bump();
-                }
-                self.bump();
-                "".to_string()
-            }
-            TokenClass::WhiteSpace(s, pos) => {
-                if self.ch_is('\r') {
-                    self.bump();
-                }
-                self.bump();
-
-                let ws = &s[pos..];
-
-                // Trim the whitespace from the last token.
-                self.tokens.pop();
-                self.tokens.push(Token::Text(s[0..pos].to_string()));
-
-                ws.to_string()
-            }
-        };
-
+    fn add_partial(&mut self, content: &str, tag: String, indent: &str) -> Result<(), Error> {
         // We can't inline the tokens directly as we may have a recursive
         // partial. So instead, we'll cache the partials we used and look them
         // up later.
         let name = &content[1..content.len()];
         let name = deny_blank(name)?;
 
-        self.tokens.push(Token::Partial(name.into(), indent, tag));
+        self.tokens.push(Token::Partial(name.into(), indent.to_string(), tag));
         self.partials.push(name.into());
 
         Ok(())
@@ -523,7 +537,7 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
 
     fn not_otag(&mut self) {
         for (i, ch) in self.opening_tag_chars.iter().enumerate() {
-            if !(i < self.tag_position) {
+            if i >= self.tag_position {
                 break;
             }
             self.content.push(*ch);
@@ -532,7 +546,7 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
 
     fn not_ctag(&mut self) {
         for (i, ch) in self.closing_tag_chars.iter().enumerate() {
-            if !(i < self.tag_position) {
+            if i >= self.tag_position {
                 break;
             }
             self.content.push(*ch);
@@ -543,7 +557,7 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
 fn get_name_or_implicit(name: &str) -> Result<Vec<String>, Error> {
     // If the name is "." then we want the top element, which we represent with
     // an empty name.
-    let name = deny_blank(&name)?;
+    let name = deny_blank(name)?;
     Ok(if name == "." {
         Vec::new()
     } else {
@@ -576,7 +590,7 @@ mod tests {
     }
 
     pub fn assert_parse(input: &str) -> (Vec<Token>, Vec<String>) {
-        parse(input).expect(&format!("Failed to parse: {}", input))
+        parse(input).unwrap_or_else(|_| panic!("Failed to parse: {}", input))
     }
 
     #[test]

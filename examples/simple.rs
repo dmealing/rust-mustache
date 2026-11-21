@@ -1,4 +1,3 @@
-extern crate mustache;
 
 use std::str;
 use std::collections::HashMap;

@@ -1,6 +1,6 @@
-use template::{self, Template};
-use compiler;
-use {Result, Error};
+use crate::template::{self, Template};
+use crate::compiler;
+use crate::{Result, Error};
 
 use std::fmt;
 use std::fs::File;
@@ -53,7 +53,7 @@ impl Context {
         file.read_to_end(&mut s)?;
 
         // TODO: maybe allow UTF-16 as well?
-        let template = match str::from_utf8(&*s) {
+        let template = match str::from_utf8(&s) {
             Ok(string) => string,
             _ => {
                 return Err(Error::InvalidStr);

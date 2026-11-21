@@ -1,9 +1,4 @@
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-
-extern crate mustache;
-
+use serde::Serialize;
 use std::str;
 use std::collections::HashMap;
 

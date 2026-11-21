@@ -1,5 +1,10 @@
-Mustache [![Ohloh statistics](http://www.ohloh.net/p/rust-mustache/widgets/project_thin_badge.gif)](https://www.ohloh.net/p/rust-mustache) [![Build Status](http://travis-ci.org/nickel-org/rust-mustache.png?branch=master)](https://travis-ci.org/nickel-org/rust-mustache) [![](http://meritbadge.herokuapp.com/mustache)](https://crates.io/crates/mustache)
+Mustache
 ========
+
+> **This is a maintained fork** of [nickel-org/rust-mustache](https://github.com/nickel-org/rust-mustache),
+> published as the `mustache-ng` crate. The library is still imported as
+> `mustache`, so existing `use mustache::...` code keeps working. Many thanks to
+> the nickel-org maintainers and the original author for the foundation.
 
 Inspired by [ctemplate][1] and [et][2], [Mustache][3] is a framework-agnostic way
 to render logic-free views.
@@ -21,18 +26,15 @@ Install it through Cargo!
 
 ```toml
 [dependencies]
-mustache = "*"
+mustache = { package = "mustache-ng", version = "0.10" }
 ```
 
 # Basic example
 
 ```rust
-#[macro_use]
-extern crate serde_derive;
-extern crate mustache;
-
 use std::io;
 use mustache::MapBuilder;
+use serde::Serialize;
 
 #[derive(Serialize)]
 struct Planet {
@@ -90,8 +92,6 @@ git submodule update
 
 cargo test
 
-# If you want to test the readme example, we're currently using the unstable feature to do so.
-cargo +nightly test --features unstable
 ```
 
 ## Releasing
@@ -118,7 +118,7 @@ git push --tags origin master
 [2]: http://www.ivan.fomichev.name/2008/05/erlang-template-engine-prototype.html
 [3]: https://mustache.github.io/
 [4]: https://mustache.github.io/mustache.5.html
-[5]: https://docs.rs/mustache
+[5]: https://docs.rs/mustache-ng
 
 # License
 
