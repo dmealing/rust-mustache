@@ -28,13 +28,18 @@ sections, partials, sections) and the optional lambdas module. Not supported:
 the optional inheritance and dynamic names modules. Their spec tests are kept
 in the suite but ignored (`cargo test -- --ignored` runs them).
 
+Behaviour changes from `mustache` 0.9: standalone tags are now stripped
+correctly when they follow another standalone tag, and a boolean interpolated
+with `{{flag}}` renders as `true` or `false` (it used to render nothing).
+
 ## Install
 
 Install it through Cargo!
 
 ```toml
 [dependencies]
-mustache = { package = "mustache-ng", version = "0.10" }
+mustache-ng = "0.10"
+serde = { version = "1", features = ["derive"] } # for the example below
 ```
 
 # Basic example
