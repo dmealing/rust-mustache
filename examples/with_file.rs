@@ -1,5 +1,5 @@
-use std::str;
 use std::collections::HashMap;
+use std::str;
 
 fn main() {
     let template = mustache::compile_path("./examples/file.tpl").expect("Failed to compile");

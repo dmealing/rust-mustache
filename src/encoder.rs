@@ -3,9 +3,9 @@ use std::error::Error as StdError;
 use std::fmt::{self, Display};
 use std::result::Result as StdResult;
 
-use serde::{self, Serialize, ser};
+use serde::{self, ser, Serialize};
 
-use super::{Data, to_data};
+use super::{to_data, Data};
 
 /// Error type to represent encoding failure.
 ///
@@ -36,19 +36,23 @@ pub type Result<T> = StdResult<T, Error>;
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match *self {
-            Error::NestedOptions => "nested Option types are not supported",
-            Error::UnsupportedType => "unsupported type",
-            Error::MissingElements => "no elements in value",
-            Error::KeyIsNotString => "key is not a string",
-            Error::NoDataToEncode => "the encodable type created no data",
-            Error::Message(ref s) => s,
-            Error::__Nonexhaustive => unreachable!(),
-        })
+        write!(
+            f,
+            "{}",
+            match *self {
+                Error::NestedOptions => "nested Option types are not supported",
+                Error::UnsupportedType => "unsupported type",
+                Error::MissingElements => "no elements in value",
+                Error::KeyIsNotString => "key is not a string",
+                Error::NoDataToEncode => "the encodable type created no data",
+                Error::Message(ref s) => s,
+                Error::__Nonexhaustive => unreachable!(),
+            }
+        )
     }
 }
 
-impl StdError for Error { }
+impl StdError for Error {}
 
 #[derive(Default)]
 pub struct Encoder;
@@ -133,8 +137,7 @@ impl serde::Serializer for Encoder {
         _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
-    ) -> Result<Data>
-    {
+    ) -> Result<Data> {
         // FIXME: Perhaps this could be relaxed to just 'do nothing'
         Ok(Data::String(variant.to_string()))
     }
@@ -149,16 +152,12 @@ impl serde::Serializer for Encoder {
 
     fn serialize_some<T>(self, value: &T) -> Result<Data>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         value.serialize(self)
     }
 
-    fn serialize_struct(
-        self,
-        _name: &'static str,
-        len: usize,
-    ) -> Result<Self::SerializeStruct> {
+    fn serialize_struct(self, _name: &'static str, len: usize) -> Result<Self::SerializeStruct> {
         self.serialize_map(Some(len))
     }
 
@@ -175,11 +174,7 @@ impl serde::Serializer for Encoder {
         })
     }
 
-    fn serialize_newtype_struct<T>(
-        self,
-        _name: &'static str,
-        value: &T,
-    ) -> Result<Data>
+    fn serialize_newtype_struct<T>(self, _name: &'static str, value: &T) -> Result<Data>
     where
         T: ?Sized + Serialize,
     {
@@ -202,9 +197,7 @@ impl serde::Serializer for Encoder {
     }
 
     fn serialize_bytes(self, value: &[u8]) -> Result<Data> {
-        let vec = value.iter()
-            .map(|&b| Data::String(b.to_string()))
-            .collect();
+        let vec = value.iter().map(|&b| Data::String(b.to_string())).collect();
 
         Ok(Data::Vec(vec))
     }
@@ -276,7 +269,8 @@ impl ser::SerializeSeq for SerializeVec {
     type Error = Error;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<()>
-        where T: ?Sized + Serialize
+    where
+        T: ?Sized + Serialize,
     {
         self.vec.push(to_data(value)?);
         Ok(())
@@ -292,7 +286,8 @@ impl ser::SerializeTuple for SerializeVec {
     type Error = Error;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<()>
-        where T: ?Sized + Serialize
+    where
+        T: ?Sized + Serialize,
     {
         ser::SerializeSeq::serialize_element(self, value)
     }
@@ -307,7 +302,8 @@ impl ser::SerializeTupleStruct for SerializeVec {
     type Error = Error;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<()>
-        where T: ?Sized + Serialize
+    where
+        T: ?Sized + Serialize,
     {
         ser::SerializeSeq::serialize_element(self, value)
     }
@@ -322,7 +318,8 @@ impl ser::SerializeTupleVariant for SerializeTupleVariant {
     type Error = Error;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<()>
-        where T: ?Sized + Serialize
+    where
+        T: ?Sized + Serialize,
     {
         self.vec.push(to_data(value)?);
         Ok(())
@@ -343,7 +340,7 @@ impl ser::SerializeMap for SerializeMap {
 
     fn serialize_key<T>(&mut self, key: &T) -> Result<()>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         match to_data(key)? {
             Data::String(s) => {
@@ -356,7 +353,7 @@ impl ser::SerializeMap for SerializeMap {
 
     fn serialize_value<T>(&mut self, value: &T) -> Result<()>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         // Taking the key should only fail if this gets called before
         // serialize_key, which is a bug in the library.
@@ -376,7 +373,7 @@ impl ser::SerializeStruct for SerializeMap {
 
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<()>
     where
-        T: ?Sized + Serialize
+        T: ?Sized + Serialize,
     {
         ser::SerializeMap::serialize_key(self, key)?;
         ser::SerializeMap::serialize_value(self, value)

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt;
 
 // for bug!
@@ -26,7 +26,7 @@ impl PartialEq for Data {
             (&Data::Fun(_), &Data::Fun(_)) => {
                 bug!("Cannot compare closures");
                 false
-            },
+            }
             (_, _) => false,
         }
     }

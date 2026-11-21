@@ -1,6 +1,6 @@
 use std::error::Error as StdError;
-use std::mem;
 use std::fmt;
+use std::mem;
 
 // for bug!
 use log::error;
@@ -11,7 +11,16 @@ pub enum Token {
     Text(String),
     EscapedTag(Vec<String>, String),
     UnescapedTag(Vec<String>, String),
-    Section(Vec<String>, bool, Vec<Token>, String, String, String, String, String),
+    Section(
+        Vec<String>,
+        bool,
+        Vec<Token>,
+        String,
+        String,
+        String,
+        String,
+        String,
+    ),
     IncompleteSection(Vec<String>, bool, String),
     Partial(String, String, String),
 }
@@ -36,19 +45,27 @@ pub enum Error {
     __Nonexhaustive,
 }
 
-impl StdError for Error { }
+impl StdError for Error {}
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // Provide more information where possible
         match *self {
-            Error::BadClosingTag(actual, expected) => write!(f, "character {:?} was unexpected in the closing tag, expected {:?}", actual, expected),
+            Error::BadClosingTag(actual, expected) => write!(
+                f,
+                "character {:?} was unexpected in the closing tag, expected {:?}",
+                actual, expected
+            ),
             Error::UnclosedSection(ref name) => write!(f, "found an unclosed section: {:?}", name),
-            Error::EarlySectionClose(ref name) => write!(f, "found a closing tag for an unopened section {:?}", name),
+            Error::EarlySectionClose(ref name) => {
+                write!(f, "found a closing tag for an unopened section {:?}", name)
+            }
             Error::UnclosedTag => write!(f, "found an unclosed tag"),
             Error::UnbalancedUnescapeTag => write!(f, "found an unbalanced unescape tag"),
             Error::EmptyTag => write!(f, "found an empty tag",),
-            Error::MissingSetDelimeterClosingTag => write!(f, "missing the new closing tag in set delimeter tag"),
+            Error::MissingSetDelimeterClosingTag => {
+                write!(f, "missing the new closing tag in set delimeter tag")
+            }
             Error::InvalidSetDelimeterSyntax => write!(f, "invalid set delimeter tag syntax"),
             Error::__Nonexhaustive => unreachable!(),
         }
@@ -146,11 +163,13 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
         // Check that we don't have any incomplete sections.
         for token in self.tokens.iter().rev() {
             if let Token::IncompleteSection(ref path, _, _) = *token {
-                return Err(Error::UnclosedSection(path.join(".")))
+                return Err(Error::UnclosedSection(path.join(".")));
             }
         }
 
-        let Parser { tokens, partials, .. } = self;
+        let Parser {
+            tokens, partials, ..
+        } = self;
 
         Ok((tokens, partials))
     }
@@ -331,7 +350,8 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
                 continue;
             }
 
-            if let (Some(indent), Some(trailing)) = (self.indent_before(i), self.trailing_after(i)) {
+            if let (Some(indent), Some(trailing)) = (self.indent_before(i), self.trailing_after(i))
+            {
                 indents[i] = Some(indent);
                 if indent > 0 {
                     cuts[i - 1].end = indent;
@@ -407,7 +427,10 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
                         self.tokens.push(Token::Text(text.to_string()));
                     }
                 }
-                Item::Tag { ref content, ref source } => {
+                Item::Tag {
+                    ref content,
+                    ref source,
+                } => {
                     let indent = match (indents[i], i.checked_sub(1).map(|prev| &items[prev])) {
                         (Some(len), Some(Item::Text(s))) => &s[s.len() - len..],
                         _ => "",
@@ -439,7 +462,7 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
                     let name = get_name_or_implicit(name)?;
                     self.tokens.push(Token::UnescapedTag(name, tag));
                 } else {
-                    return Err(Error::UnbalancedUnescapeTag)
+                    return Err(Error::UnbalancedUnescapeTag);
                 }
             }
             '#' => {
@@ -456,7 +479,7 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
 
                 loop {
                     if self.tokens.is_empty() {
-                        return Err(Error::EarlySectionClose(name.join(".")))
+                        return Err(Error::EarlySectionClose(name.join(".")));
                     }
 
                     let last = self.tokens.pop();
@@ -469,11 +492,20 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
                             let mut srcs = Vec::new();
                             for child in children.iter() {
                                 match *child {
-                                    Token::Text(ref s) |
-                                    Token::EscapedTag(_, ref s) |
-                                    Token::UnescapedTag(_, ref s) |
-                                    Token::Partial(_, _, ref s) => srcs.push(s.clone()),
-                                    Token::Section(_, _, _, _, ref osection, ref src, ref csection, _) => {
+                                    Token::Text(ref s)
+                                    | Token::EscapedTag(_, ref s)
+                                    | Token::UnescapedTag(_, ref s)
+                                    | Token::Partial(_, _, ref s) => srcs.push(s.clone()),
+                                    Token::Section(
+                                        _,
+                                        _,
+                                        _,
+                                        _,
+                                        ref osection,
+                                        ref src,
+                                        ref csection,
+                                        _,
+                                    ) => {
                                         srcs.push(osection.clone());
                                         srcs.push(src.clone());
                                         srcs.push(csection.clone());
@@ -492,17 +524,19 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
                                     src.push_str(s);
                                 }
 
-                                self.tokens.push(Token::Section(name,
-                                                         inverted,
-                                                         children,
-                                                         self.opening_tag.clone(),
-                                                         osection,
-                                                         src,
-                                                         tag,
-                                                         self.closing_tag.clone()));
+                                self.tokens.push(Token::Section(
+                                    name,
+                                    inverted,
+                                    children,
+                                    self.opening_tag.clone(),
+                                    osection,
+                                    src,
+                                    tag,
+                                    self.closing_tag.clone(),
+                                ));
                                 break;
                             } else {
-                                return Err(Error::UnclosedSection(section_name.join(".")))
+                                return Err(Error::UnclosedSection(section_name.join(".")));
                             }
                         }
                         Some(last_token) => children.push(last_token),
@@ -529,7 +563,8 @@ impl<'a, T: Iterator<Item = char>> Parser<'a, T> {
         let name = &content[1..content.len()];
         let name = deny_blank(name)?;
 
-        self.tokens.push(Token::Partial(name.into(), indent.to_string(), tag));
+        self.tokens
+            .push(Token::Partial(name.into(), indent.to_string(), tag));
         self.partials.push(name.into());
 
         Ok(())
@@ -561,9 +596,7 @@ fn get_name_or_implicit(name: &str) -> Result<Vec<String>, Error> {
     Ok(if name == "." {
         Vec::new()
     } else {
-        name.split_terminator('.')
-            .map(|x| x.to_string())
-            .collect()
+        name.split_terminator('.').map(|x| x.to_string()).collect()
     })
 }
 
@@ -628,7 +661,10 @@ mod tests {
 
         #[test]
         fn unclosed() {
-            assert_eq!(parse("{{#world}}hi"), Err(Error::UnclosedSection("world".into())))
+            assert_eq!(
+                parse("{{#world}}hi"),
+                Err(Error::UnclosedSection("world".into()))
+            )
         }
 
         #[test]
@@ -657,7 +693,10 @@ mod tests {
 
         #[test]
         fn early_close() {
-            assert_eq!(parse("{{/world}}"), Err(Error::EarlySectionClose("world".into())))
+            assert_eq!(
+                parse("{{/world}}"),
+                Err(Error::EarlySectionClose("world".into()))
+            )
         }
     }
 
@@ -671,7 +710,10 @@ mod tests {
 
         #[test]
         fn unclosed() {
-            assert_eq!(parse("{{^world}}hi"), Err(Error::UnclosedSection("world".into())))
+            assert_eq!(
+                parse("{{^world}}hi"),
+                Err(Error::UnclosedSection("world".into()))
+            )
         }
 
         #[test]
@@ -714,7 +756,10 @@ mod tests {
 
         #[test]
         fn closing_tag_is_whitespace() {
-            assert_eq!(parse("{{=<% =}}"), Err(Error::MissingSetDelimeterClosingTag))
+            assert_eq!(
+                parse("{{=<% =}}"),
+                Err(Error::MissingSetDelimeterClosingTag)
+            )
         }
 
         #[test]
